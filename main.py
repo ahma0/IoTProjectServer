@@ -3,9 +3,6 @@ import pymysql
 
 # dbw: https://lucathree.github.io/python/day16/
 
-OK = 200
-BAD_REQUEST = 400
-
 def dbcon():
     return pymysql.connect(host='localhost',
                            port=3306,
@@ -23,7 +20,17 @@ def commitDB(sql, vals):
 
     return True
 
-def selectDB(sql, vals):
+def select1DB(sql):
+    # result=list()
+    db = dbcon()
+    cur = db.cursor()
+    cur.execute(sql)
+    ret = cur.fetchall()
+    db.close()          # MySQL 연결 종료
+
+    return ret
+
+def select2DB(sql, vals):
     db = dbcon()
     cur = db.cursor()
     cur.execute(sql, vals)
@@ -37,10 +44,18 @@ app = Flask(__name__)
 # app.route('/url', methods=['POST'])
 # get과 post 둘 다 지원하려면 methods=['GET', 'POST']
 
+
+# req
+# {
+#     "carNo": "String",
+#     "email": "String",
+#     "password": "String",
+#     "phone": "String"
+# }
+
 @app.route('/signup', methods=['POST'])
 def signUp():
     params = request.get_json()
-    carNum = params['carNo']
 
     sql = "insert into member values(%s, %s, %s, %s, 0)"
     vals = (params['carNo'], params['email'], params['password'], params['phone'])
@@ -48,9 +63,23 @@ def signUp():
     flag = commitDB(sql, vals)
 
     if(flag == False):
-        return make_response("fail")
+        return make_response("FAIL")
 
     return make_response("OK")
+
+# req
+# {
+#     "email": “String”,
+#     "password": "String"
+# }
+
+# res
+# {
+#     "carNo": "String",
+#     "email": "String",
+#     "password": "String",
+#     "phone": "String"
+# }
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -59,7 +88,7 @@ def login():
     sql = "SELECT * FROM member WHERE member_id = %s AND member_password = %s"
     vals = (params['email'], params['password'])
 
-    flag = selectDB(sql, vals)
+    flag = select2DB(sql, vals)
 
     data = {
         "carNo": flag[0],
@@ -73,35 +102,101 @@ def login():
 
     return make_response(data)
 
-#-------------------------------------------------------------------
+# res
+# {
+#     "getIn": "String",
+#     "pay": int,                               -> ??
+#     "parkingLoc": int,
+#     "parkingStatus": int
+# }
+#
 
 @app.route('/mypark', methods=['GET'])
 def status():
-    params = request.get_json()
-    sql = "SELECT car_num FROM member WHERE member_id = %s"
-    flag = selectDB(sql, params['email'])
+    temp = str(request.args.get('carNo'))
+    sql = "SELECT car_num, member_isparking FROM member WHERE car_num = %s"
+    flag = select2DB(sql, temp)
 
     if (flag == False):
-        return make_response(BAD_REQUEST)
+        return make_response("FAIL")
 
-    sql = "SELECT * FROM users WHERE car_num = %s"
+    if(flag[1] == 0):
+        getIn = "-"
+        pay = 0
+        parkingLoc = 0
+    else:
+        sql1 = "SELECT car_num, parking_location, parking_in_date, parking_out_date FROM parking WHERE car_num = %s"
+        db_result = select2DB(sql1, (flag[0],))
+        # Tue, 01 Nov 2022 14:01:01
+        getIn = str(db_result[2])[11:]
+        parkingLoc = int(db_result[1])
+        pay = 0
 
-@app.route('/status', methods=['POST'])
-def status():
-    params = request.get_json()
-    sql = "SELECT car_num FROM member WHERE member_id = %s"
-    flag = selectDB(sql, params['email'])
+    sql2 = "SELECT car_num, parking_location FROM parking WHERE parking_out_date is null"
+    park_result = select1DB(sql2)
 
-    if (flag == False):
-        return make_response(BAD_REQUEST)
+    parkingStatus = len(park_result)
 
-    sql = "SELECT * FROM users WHERE car_num = %s"
+    data = {
+        "getIn": getIn,
+        "pay": pay,
+        "parkingLoc": parkingLoc,
+        "parkingStatus": parkingStatus
+    }
 
+    return make_response(data)
 
+# res
+# {
+#     "no1": int,
+#     "no2": int,
+#     "no3": int,
+#     "no4": int,
+#     "no5": int,
+#     "no6": int,
+# }
+# 0: 빈 주차자리
+# 1: 이미 주차된 자리
+
+@app.route('/parkingState', methods=['GET'])
+def parkingState():
+
+    sql = "SELECT parking_location FROM parking WHERE parking_out_date is null"
+    park_result = select1DB(sql)
+
+    if(park_result == None):
+        data = {
+            "no1": 0,
+            "no2": 0,
+            "no3": 0,
+            "no4": 0,
+            "no5": 0,
+            "no6": 0
+        }
+
+        return make_response(data)
+
+    arr = [0, 0, 0, 0, 0, 0]
+
+    for i in range(len(park_result)):
+        arr[int(park_result[i][0]) - 1] = 1
+
+    data = {
+        "no1": arr[0],
+        "no2": arr[1],
+        "no3": arr[2],
+        "no4": arr[3],
+        "no5": arr[4],
+        "no6": arr[5]
+    }
+
+    return make_response(data)
+
+#-------------------------------------------------------------------
 
 @app.route('/update', methods=['POST'])
 def updatePark():
-    return make_response(OK)
+    return make_response("OK")
 
 
 
@@ -109,4 +204,4 @@ def updatePark():
 
 
 if __name__ == '__main__':          # 현재 파일 실행 시 개발용 웹 서버 구동
-    app.run(debug=True, port=80, host='0.0.0.0')
+    app.run(debug=True, port=8000, host='192.168.99.140')
