@@ -1,6 +1,7 @@
 from flask import Flask, request, make_response
 from PIL import Image
 from io import BytesIO
+import datetime as dt
 import base64
 import pymysql
 
@@ -197,7 +198,58 @@ def parkingState():
 
     return make_response(data)
 
-#-------------------------------------------------------------------
+## 좋은게 0, 나쁜게 1
+@app.route('/gas', methods=['POST'])
+def gasWithRaspberryPI():
+    params = request.get_json()
+    global GAS
+    GAS = params['gas']
+    print(GAS)
+    return make_response("OK")
+
+@app.route('/gas/status', methods=['GET'])
+def gasWithApp():
+    global GAS
+    data = {
+        "gas": GAS
+    }
+    return make_response(data)
+
+#통계
+@app.route('/statistics', methods=['GET'])
+def analytics():
+    temp = str(request.args.get('carNo'))
+    sql = "SELECT car_num,sum(parking_fee) FROM parking WHERE car_num = %s"     #누적 요금
+    flag = select2DB(sql, temp)
+
+    if (flag == False):
+        return make_response("FAIL")
+
+    x = dt.datetime.now()
+
+    sql = "SELECT car_num,count(*) FROM parking WHERE car_num = %s AND month(parking_in_date) = " + str(x.month)  # 누적 요금
+    numUses = select2DB(sql, temp)
+
+    if (numUses == False):
+        return make_response("FAIL")
+
+    data = {
+        "pay": int(flag[1]),
+        "numUses": numUses[1]
+    }
+
+    return make_response(data)
+
+
+#-----------------------------------------------------------------------------------
+
+
+# # [통계] - 누적 요금
+# select car_num,sum(parking_fee) from parking where car_num='1234';
+#
+# # [통계] - 누적 주차장 이용 횟수 (월별)
+# select car_num,count(*) from parking where car_num='1234' and month(parking_in_date)='11';
+
 
 @app.route('/update', methods=['POST'])
 def updatePark():
@@ -224,24 +276,6 @@ def index():
 
 
    return json_data
-
-## 좋은게 0, 나쁜게 1
-@app.route('/gas', methods=['POST'])
-def gasWithRaspberryPI():
-    params = request.get_json()
-    global GAS
-    GAS = params['gas']
-    print(GAS)
-    return make_response("OK")
-
-@app.route('/gas/status', methods=['GET'])
-def gasWithApp():
-    global GAS
-    data = {
-        "gas": GAS
-    }
-    return make_response(data)
-
 
 # https://scribblinganything.tistory.com/620
 
