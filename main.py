@@ -1,7 +1,12 @@
-from flask import jsonify, Flask, request, make_response
+from flask import Flask, request, make_response
+from PIL import Image
+from io import BytesIO
+import base64
 import pymysql
 
 # dbw: https://lucathree.github.io/python/day16/
+
+GAS = 0
 
 def dbcon():
     return pymysql.connect(host='localhost',
@@ -53,7 +58,7 @@ app = Flask(__name__)
 #     "phone": "String"
 # }
 
-@app.route('/signup', methods=['POST'])
+@app.route('/user/signup', methods=['POST'])
 def signUp():
     params = request.get_json()
 
@@ -81,7 +86,7 @@ def signUp():
 #     "phone": "String"
 # }
 
-@app.route('/login', methods=['POST'])
+@app.route('/user/login', methods=['POST'])
 def login():
     # https://velog.io/@dacokim32/Flask-1Flask%EC%97%90%EC%84%9C-json%EB%8B%A4%EB%A3%A8%EA%B8%B0
     params = request.get_json()
@@ -196,6 +201,37 @@ def parkingState():
 
 @app.route('/update', methods=['POST'])
 def updatePark():
+    params = request.get_json()
+
+    sql = "SELECT * FROM member WHERE member_id = %s AND member_password = %s"
+    vals = (params['email'], params['password'])
+
+    flag = select2DB(sql, vals)
+
+    return make_response("OK")
+
+@app.route('/image', methods=['POST'])
+def index():
+   json_data = request.get_json()
+   # print(json_data['img'])
+   # dict_data = json.loads(json_data)
+
+   img = json_data['img']
+   img = base64.b64decode(img)
+   img = BytesIO(img)
+   img = Image.open(img)
+   img.save('test.jpg')
+
+
+   return json_data
+
+## 좋은게 0, 나쁜게 1
+@app.route('/gas', methods=['POST'])
+def gas():
+    params = request.get_json()
+    global GAS
+    GAS = params['gas']
+    print(GAS)
     return make_response("OK")
 
 
