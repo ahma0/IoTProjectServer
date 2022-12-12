@@ -227,13 +227,20 @@ def index():
 
 ## 좋은게 0, 나쁜게 1
 @app.route('/gas', methods=['POST'])
-def gas():
+def gasWithRaspberryPI():
     params = request.get_json()
     global GAS
     GAS = params['gas']
     print(GAS)
     return make_response("OK")
 
+@app.route('/gas/status', methods=['GET'])
+def gasWithApp():
+    global GAS
+    data = {
+        "gas": GAS
+    }
+    return make_response(data)
 
 
 # https://scribblinganything.tistory.com/620
