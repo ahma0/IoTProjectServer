@@ -1,9 +1,11 @@
-from flask import Flask, request, make_response
+import base64
+from flask import Flask, request, make_response, jsonify
+import datetime as dt
+import pymysql
 from PIL import Image
 from io import BytesIO
-import datetime as dt
-import base64
-import pymysql
+from image import getIn_getOut, webCam, getImage
+import json
 
 # dbw: https://lucathree.github.io/python/day16/
 
@@ -243,42 +245,86 @@ def analytics():
 
 #-----------------------------------------------------------------------------------
 
-
-# # [통계] - 누적 요금
-# select car_num,sum(parking_fee) from parking where car_num='1234';
-#
-# # [통계] - 누적 주차장 이용 횟수 (월별)
-# select car_num,count(*) from parking where car_num='1234' and month(parking_in_date)='11';
-
-
-@app.route('/update', methods=['POST'])
-def updatePark():
+@app.route('/image_webcam', methods=['POST'])
+def parkingWithInfraredSensors():
     params = request.get_json()
 
-    sql = "SELECT * FROM member WHERE member_id = %s AND member_password = %s"
-    vals = (params['email'], params['password'])
+    sql = "UPDATE member SET member_isparking = 1 WHERE car_num= %s and EXISTS (SELECT * FROM parking WHERE parking_out_date is null and member.car_num=parking.car_num)"
 
-    flag = select2DB(sql, vals)
+    getImage(params['img'])  # test.jpg로 저장
+    img = webCam('test.jpg')   # 배열 return 받음
+    cnt = 0
+
+    for i in params['parking']:
+        if(i == 1):
+            db = commitDB(sql, img[cnt])
+            if(db == False):
+                return make_response("FAIL")
+            cnt += 1
+
+    return make_response("OK")
+
+@app.route('/genInParking', methods=['POST'])
+def getInPark():
+    params = request.get_json()
+    getImage(params['image'])
+    out = getIn_getOut()        # 차 번호 받아옴
+
+    sql = "INSERT INTO parking(car_num, parking_location, parking_in_date) VALUES(%s, '1', " + dt.datetime.now() + ")"
+
+    flag = commitDB(sql, out)
+
+    if(flag == False):
+        return make_response("FAIL")
+
+    return make_response(out)
+
+@app.route('/genOutParking', methods=['POST'])
+def getOutPark():
+    params = request.get_json()
+    getImage(params['image'])
+    out = getIn_getOut('test.jpg')
+
+    # 출차시간 업데이트
+    sql = "UPDATE parking SET parking_out_date = " + dt.datetime.now() + "WHERE parking_out_date is null and car_num = %s"
+    commitDB(sql, out)
+    # 출차 했을 때, isparking 값 바꾸기
+    sql2 = "UPDATE member SET member_isparking = 0 WHERE car_num = %s and NOT EXISTS(SELECT * FROM parking WHERE parking_out_date is null and member.car_num = parking.car_num)"
+    commitDB(sql2, out)
 
     return make_response("OK")
 
 @app.route('/image', methods=['POST'])
 def index():
-   json_data = request.get_json()
-   # print(json_data['img'])
-   # dict_data = json.loads(json_data)
+	json_data = request.get_json()
+	# print(json_data['img'])
+	# dict_data = json.loads(json_data)
 
-   img = json_data['img']
-   img = base64.b64decode(img)
-   img = BytesIO(img)
-   img = Image.open(img)
-   img.save('test.jpg')
+	img = json_data['img']
+	img = base64.b64decode(img)
+	img = BytesIO(img)
+	img = Image.open(img)
+	img.save('test.jpg')
+
+	return json_data
 
 
-   return json_data
+
+#
+# @app.route('/update', methods=['POST'])
+# def updatePark():
+#     params = request.get_json()
+#
+#     sql = "SELECT * FROM member WHERE member_id = %s AND member_password = %s"
+#     vals = (params['email'], params['password'])
+#
+#     flag = select2DB(sql, vals)
+#
+#     return make_response("OK")
+
 
 # https://scribblinganything.tistory.com/620
 
 
 if __name__ == '__main__':          # 현재 파일 실행 시 개발용 웹 서버 구동
-    app.run(debug=True, port=8000, host='192.168.99.140')
+    app.run(debug=True, port=8000, host='172.20.10.2')
