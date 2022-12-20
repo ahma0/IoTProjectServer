@@ -10,6 +10,19 @@ import json
 # dbw: https://lucathree.github.io/python/day16/
 
 GAS = 0
+# INPUTCAR = "0000"
+
+IR = [0, 0, 0, 0]
+CAR = "0000"
+#
+# USER = {
+#     "carNo":"0000",
+#     "email":"1234",
+#     "password":"1234",
+#     "phone":"01022222222",
+#     "isParking":0
+# }
+GAS_NUM = 0
 
 def dbcon():
     return pymysql.connect(host='localhost',
@@ -65,6 +78,12 @@ app = Flask(__name__)
 def signUp():
     params = request.get_json()
 
+    # global USER
+    # USER['carNo'] = params['carNo']
+    # USER['email'] = params['email']
+    # USER['password'] = params['password']
+    # USER['phone'] = params['phone']
+
     sql = "insert into member values(%s, %s, %s, %s, 0)"
     vals = (params['carNo'], params['email'], params['password'], params['phone'])
 
@@ -98,6 +117,9 @@ def login():
 
     flag = select2DB(sql, vals)
 
+    # global USER
+    # if(USER["email"])
+
     data = {
         "carNo": flag[0],
         "email": flag[1],
@@ -121,6 +143,42 @@ def login():
 
 @app.route('/mypark', methods=['GET'])
 def status():
+    temp = str(request.args.get('carNo'))
+    sql = "SELECT car_num, member_isparking FROM member WHERE car_num = %s"
+    flag = select2DB(sql, temp)
+
+    if (flag == False):
+        return make_response("FAIL")
+
+    if(int(flag[1]) == 0):
+        getIn = "-"
+        pay = 0
+        parkingLoc = 0
+    else:
+        sql1 = "SELECT car_num, parking_location, parking_in_date, parking_out_date FROM parking WHERE car_num = %s"
+        db_result = select2DB(sql1, (flag[0],))
+        # Tue, 01 Nov 2022 14:01:01
+        getIn = str(db_result[2])[11:]
+        parkingLoc = int(db_result[1])
+        pay = 0
+
+    sql2 = "SELECT car_num, parking_location FROM parking WHERE parking_out_date is null"
+    park_result = select1DB(sql2)
+
+    parkingStatus = len(park_result)
+
+    data = {
+        "getIn": getIn,
+        "pay": pay,
+        "parkingLoc": parkingLoc,
+        "parkingStatus": parkingStatus
+    }
+
+    return make_response(data)
+
+
+@app.route('/mypage', methods=['GET'])
+def status2():
     temp = str(request.args.get('carNo'))
     sql = "SELECT car_num, member_isparking FROM member WHERE car_num = %s"
     flag = select2DB(sql, temp)
@@ -211,7 +269,13 @@ def gasWithRaspberryPI():
 
 @app.route('/gas/status', methods=['GET'])
 def gasWithApp():
-    global GAS
+    global GAS, GAS_NUM
+
+    # if(GAS_NUM == 2):
+    #     GAS_NUM = 0
+    #     GAS = 0
+    # else:
+    #     GAS_NUM += 1
     data = {
         "gas": GAS
     }
@@ -245,22 +309,37 @@ def analytics():
 
 #-----------------------------------------------------------------------------------
 
-@app.route('/image_webcam', methods=['POST'])
+@app.route('/ir', methods=['POST'])
 def parkingWithInfraredSensors():
     params = request.get_json()
 
-    sql = "UPDATE member SET member_isparking = 1 WHERE car_num= %s and EXISTS (SELECT * FROM parking WHERE parking_out_date is null and member.car_num=parking.car_num)"
+    global IR
+    global CAR
 
-    getImage(params['img'])  # test.jpg로 저장
-    img = webCam('test.jpg')   # 배열 return 받음
+    sql = "UPDATE member SET member_isparking = 1 WHERE car_num= %s and EXISTS (SELECT * FROM parking WHERE parking_out_date is null and member.car_num=parking.car_num)"
+    sql2 = "UPDATE parking SET parking_location = %s WHERE car_num=%s"
+    sql3 = "UPDATE parking SET parking_out_date = " + str(dt.datetime.now()) + "WHERE parking_out_date is null and car_num = %s"
+    sql4 = "UPDATE member SET member_isparking = 0 WHERE car_num = %s and NOT EXISTS(SELECT * FROM parking WHERE parking_out_date is null and member.car_num = parking.car_num)"
+
     cnt = 0
 
-    for i in params['parking']:
-        if(i == 1):
-            db = commitDB(sql, img[cnt])
-            if(db == False):
-                return make_response("FAIL")
-            cnt += 1
+    for i in params['ir']:
+        if(i != IR[cnt]):
+            if(i == 1):
+                db = commitDB(sql, CAR)
+                print(type(cnt))
+                print(cnt)
+                db2 = commitDB(sql2,(int(cnt), CAR))
+                return make_response("OK")
+            if(i == 0):
+                commitDB(sql3, CAR)
+                commitDB(sql4, CAR)
+                data = {
+                    "ir": CAR
+                }
+                IR = i
+                return make_response(data)
+        cnt += 1
 
     return make_response("OK")
 
@@ -270,7 +349,10 @@ def getInPark():
     getImage(params['image'])
     out = getIn_getOut()        # 차 번호 받아옴
 
-    sql = "INSERT INTO parking(car_num, parking_location, parking_in_date) VALUES(%s, '1', " + dt.datetime.now() + ")"
+    global CAR
+
+    CAR = out
+    sql = "INSERT INTO parking(car_num, parking_in_date) VALUES(%s, " + str(dt.datetime.now()) + ")"
 
     flag = commitDB(sql, out)
 
@@ -279,52 +361,67 @@ def getInPark():
 
     return make_response(out)
 
-@app.route('/genOutParking', methods=['POST'])
+@app.route('/genOutParking', methods=['GET'])
 def getOutPark():
-    params = request.get_json()
-    getImage(params['image'])
-    out = getIn_getOut('test.jpg')
+    # # 출차시간 업데이트
 
-    # 출차시간 업데이트
-    sql = "UPDATE parking SET parking_out_date = " + dt.datetime.now() + "WHERE parking_out_date is null and car_num = %s"
-    commitDB(sql, out)
-    # 출차 했을 때, isparking 값 바꾸기
-    sql2 = "UPDATE member SET member_isparking = 0 WHERE car_num = %s and NOT EXISTS(SELECT * FROM parking WHERE parking_out_date is null and member.car_num = parking.car_num)"
-    commitDB(sql2, out)
+    sql = "SELECT parking_in_date, parking_out_date FROM parking WHERE car_num = %s and parking_fee = 0"
+    db = select2DB(sql, CAR)
+
+    # if(db != False):
+    #     fee = db[1] - db[0]
+
+    sql2 = "UPDATE parking SET parking_fee = %d WHERE car_num = %s and parking_fee = 0"
+    commitDB(sql2, 1000)
+
+    data = {
+        "fee":1000
+    }
+
 
     return make_response("OK")
 
 @app.route('/image', methods=['POST'])
-def index():
-	json_data = request.get_json()
+def index2():
+    json_data = request.get_json()
+
 	# print(json_data['img'])
 	# dict_data = json.loads(json_data)
+    img = json_data['img']
+    img = base64.b64decode(img)
+    img = BytesIO(img)
+    img = Image.open(img)
+    img.save('test.jpg')
 
-	img = json_data['img']
-	img = base64.b64decode(img)
-	img = BytesIO(img)
-	img = Image.open(img)
-	img.save('test.jpg')
+    data = {
+        "carNo":getIn_getOut('test.jpg')
+    }
 
-	return json_data
-
-
-
+    return make_response(data)
 #
-# @app.route('/update', methods=['POST'])
-# def updatePark():
-#     params = request.get_json()
-#
-#     sql = "SELECT * FROM member WHERE member_id = %s AND member_password = %s"
-#     vals = (params['email'], params['password'])
-#
-#     flag = select2DB(sql, vals)
-#
+# @app.route('/ir', methods=['POST'])
+# def index():
+#     json_data = request.get_json()
+#     print(json_data['str'])
 #     return make_response("OK")
+#
+# 	# print(json_data['img'])
+# 	# dict_data = json.loads(json_data)
+#     img = json_data['img']
+#     img = base64.b64decode(img)
+#     img = BytesIO(img)
+#     img = Image.open(img)
+#     img.save('test.jpg')
+#
+#     data = {
+#         "carNo":getIn_getOut('test.jpg')
+#     }
+#
+#     return make_response(data)
 
 
 # https://scribblinganything.tistory.com/620
 
 
 if __name__ == '__main__':          # 현재 파일 실행 시 개발용 웹 서버 구동
-    app.run(debug=True, port=8000, host='172.20.10.2')
+    app.run(debug=True, port=8000, host='192.168.99.140')
